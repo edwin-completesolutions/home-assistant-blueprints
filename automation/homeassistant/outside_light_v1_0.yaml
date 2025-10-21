@@ -159,14 +159,14 @@ action:
         {% elif trigger.id == 'boost_timer_done' %}timer_done
         {% elif trigger.id == 'startup' %}startup
         {% else %}other{% endif %}
-      button_pressed: "{{ event_source == 'button' }}"
-      
+      source_is_button: "{{ event_source == 'button' }}"
+      source_is_motion_start: "{{ event_source in ['motion', 'door'] }}"
 
   - alias: Step 2c · Compute Desired Baseline
     variables:
       want_boost: >-
         {% set wb = boost_active %}
-        {% if button_pressed %}
+        {% if source_is_button %}
           {% if not dark_now %}
             {% set wb = false %}
           {% elif in_evening_window %}
@@ -182,9 +182,11 @@ action:
               {% set wb = true %}
             {% endif %}
           {% endif %}
-        {% endif %}
+        {% elif in_evening_window and source_is_motion_start %}
+          {% set wb = true %}
+        {% endif %}        
         {{ wb }}
-      desired_on: "{{ want_boost or in_evening_window }}"
+      desired_on: "{{ want_boost or dark_now }}"
       desired_brightness_pct: >-
         {% if want_boost %}
           {{ brightness_high_pct }}
