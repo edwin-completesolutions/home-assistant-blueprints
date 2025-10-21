@@ -1,0 +1,122 @@
+blueprint:
+  name: Battery Capacity Calculation Blueprint
+  description: >
+    A blueprint to compute stored and remaining energy (in Wh) based on the total capacity,
+    current SoC, and configured min/max SoC of a battery device. This blueprint automatically
+    recomputes values whenever any of the inputs change.
+  domain: automation
+  input:
+    e_soc_pct:
+      name: Current SoC Sensor
+      description: The sensor that reports the current state of charge (SoC) in percentage.
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
+
+    e_min_soc_pct:
+      name: Minimum SoC
+      description: A number helper (or equivalent entity) representing the minimum allowed SoC percentage.
+      selector:
+        entity:
+          domain: number
+          multiple: false
+
+    e_max_soc_pct:
+      name: Maximum SoC
+      description: A number helper (or equivalent entity) representing the maximum allowed SoC percentage.
+      selector:
+        entity:
+          domain: number
+          multiple: false
+
+    e_total_wh:
+      name: Total Capacity
+      description: An input number (or equivalent entity) representing the total energy capacity in Watt-hours (Wh). This value is READ by the blueprint.
+      selector:
+        entity:
+          domain: input_number
+          multiple: false
+
+    e_stored_wh:
+      name: Stored Energy Output
+      description: An input number (or equivalent entity) that this blueprint will WRITE the computed stored energy (in Wh) to. This value is updated automatically by the blueprint.
+      selector:
+        entity:
+          domain: input_number
+          multiple: false
+
+    e_remaining_wh:
+      name: Remaining Energy Output
+      description: An input number (or equivalent entity) that this blueprint will WRITE the computed remaining energy (in Wh) to. This value is updated automatically by the blueprint.
+      selector:
+        entity:
+          domain: input_number
+          multiple: false
+
+trigger:
+  - entity_id:
+      - !input e_soc_pct
+      - !input e_min_soc_pct
+      - !input e_max_soc_pct
+      - !input e_total_wh
+    trigger: state
+
+action:
+  - alias: Read current values
+    variables:
+      v_soc_pct: "{{ states(!input e_soc_pct) | float(0) }}"
+      v_min_soc_pct: "{{ states(!input e_min_soc_pct) | float(0) }}"
+      v_max_soc_pct: "{{ states(!input e_max_soc_pct) | float(100) }}"
+      v_total_wh: "{{ states(!input e_total_wh) | float(0) }}"
+
+  - alias: Compute band and clamped deltas in %
+    variables:
+      v_band_pct: |
+        {% set raw_band_pct = v_max_soc_pct - v_min_soc_pct %}
+        {% if raw_band_pct < 0 %}
+          {% set raw_band_pct = 0 %}
+        {% endif %}
+        {% if raw_band_pct > 100 %}
+          {% set raw_band_pct = 100 %}
+        {% endif %}
+        {{ raw_band_pct }}
+      v_above_min_pct: |
+        {% set above_min_pct_raw = v_soc_pct - v_min_soc_pct %}
+        {% if above_min_pct_raw < 0 %}
+          {% set above_min_pct_raw = 0 %}
+        {% endif %}
+        {% if above_min_pct_raw > v_band_pct %}
+          {% set above_min_pct_raw = v_band_pct %}
+        {% endif %}
+        {{ above_min_pct_raw }}
+      v_remaining_pct: |
+        {% set remaining_pct_raw = v_max_soc_pct - v_soc_pct %}
+        {% if remaining_pct_raw < 0 %}
+          {% set remaining_pct_raw = 0 %}
+        {% endif %}
+        {% if remaining_pct_raw > v_band_pct %}
+          {% set remaining_pct_raw = v_band_pct %}
+        {% endif %}
+        {{ remaining_pct_raw }}
+
+  - alias: Compute energies in Wh
+    variables:
+      v_stored_wh: "{{ (v_total_wh * v_above_min_pct / 100) | round(0) | int }}"
+      v_remaining_wh: "{{ (v_total_wh * v_remaining_pct / 100) | round(0) | int }}"
+
+  - alias: Write stored Wh helper
+    action: input_number.set_value
+    target:
+      entity_id: !input e_stored_wh
+    data:
+      value: "{{ v_stored_wh }}"
+
+  - alias: Write remaining Wh helper
+    action: input_number.set_value
+    target:
+      entity_id: !input e_remaining_wh
+    data:
+      value: "{{ v_remaining_wh }}"
+
+mode: restart
