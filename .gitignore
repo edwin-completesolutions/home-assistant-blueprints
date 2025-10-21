@@ -1,0 +1,22 @@
+# Editor and workspace settings
+.vscode/
+.history/
+*.code-workspace
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Python bytecode or cache (sometimes created by add-ons)
+__pycache__/
+*.pyc
+
+# Backup and temp files
+*.bak
+*.tmp
+*~
+
+# Home Assistant internal data (just in case someone copies this higher up)
+.storage/
+home-assistant_v2.db*
+secrets.yaml
