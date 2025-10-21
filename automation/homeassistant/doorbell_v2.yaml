@@ -3,12 +3,12 @@ blueprint:
 #                         INPUTS                                #
 #################################################################
   name: Doorbell via vibration + motion v2
-  description: Detects a doorbell event via a vibration sensor, confirms with a motion sensor at the front door, and optionally sends a notification and/or blinks a light.
+  description: Detects a physical doorbell ring using a vibration sensor with motion sensor confirmation to prevent false triggers. Can flash a light and/or send a notification when the doorbell is activated.
   domain: automation
   input:
     vibration_sensor:
       name: Vibration sensor
-      description: Select the vibration sensor attached to the doorbell
+      description: Physical vibration sensor attached directly to the mechanical doorbell mechanism to detect actual bell movement
       selector:
         entity:
           filter:
@@ -16,8 +16,8 @@ blueprint:
               device_class:
                 - vibration
     motion_sensor:
-      name: Motion sensor
-      description: Select the motion sensor at the front door
+      name: Front door motion sensor
+      description: Motion or occupancy sensor positioned at the front door entrance to confirm visitor presence and reduce false detections
       selector:
         entity:
           filter:
@@ -26,8 +26,8 @@ blueprint:
                 - motion
                 - occupancy
     notify_device:
-      name: Phone (optional)
-      description: Select the phone that should receive a push notification (optional)
+      name: Notification device (optional)
+      description: Mobile device to receive push notifications when the doorbell is detected (leave empty to disable notifications)
       default: ""
       selector:
         device:
@@ -35,7 +35,7 @@ blueprint:
             - integration: mobile_app
     light_button:
       name: Light identify button (optional)
-      description: Select the button that makes the light blink (optional)
+      description: Button entity that triggers a light to flash/identify when pressed - typically created automatically when adding Zigbee/Z-Wave lights (leave empty to disable light indication)
       default: ""
       selector:
         entity:
@@ -118,4 +118,3 @@ action:
             type: notify
             title: "{{ v_notify_title }}"
             message: "{{ v_message }}"
-
