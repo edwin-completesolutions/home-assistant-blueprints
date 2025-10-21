@@ -1,43 +1,62 @@
 blueprint:
   name: Outside Light Presence Evening v1.0
   description: >
-    Elevation-driven. Evening window (dark after midday..21:00) → 20%.
-    While dark: motion/door → 100% with boost timer.
-    Button is folded into baseline: evening→toggle boost; dark outside window→toggle on/off via boost; daytime→only turn off.
+    Automatically adjusts your light based on the sun's position and time of day.
+    When it's dark after midday until your chosen end time, the light dims to a low level.
+    If it's dark outside that window, motion or a door opening will turn the light on bright for a short time.
+    A button lets you manually override: toggle boost in the evening, toggle the light on/off when it's dark, or turn it off during the day.
   domain: automation
   input:
     light_entity:
-      name: Light Entity
-      description: The light to control
+      name: Light to Control
+      description: >
+        The light entity to control. Must be a dimmable light that supports brightness adjustment.
       selector:
         entity:
           domain: light
     motion_entity:
       name: Motion Sensor
-      description: Motion sensor to trigger the light
+      description: >
+        A motion sensor that triggers the light to turn on at full brightness when motion is detected.
+        This happens whenever it's dark, regardless of the time of day.
       selector:
         entity:
           domain: binary_sensor
           device_class: motion
     door_entity:
       name: Door Sensor
-      description: Door sensor to trigger the light
+      description: >
+        A door sensor that triggers the light to turn on at full brightness when the door opens.
+        Like the motion sensor, this happens when it's dark.
       selector:
         entity:
           domain: binary_sensor
           device_class: door
     button_device:
       name: Button Device
-      description: ZHA button device for manual control
+      description: >
+        A Zigbee-based wall button or remote (ZHA) used to manually control the light.
+        Depending on the time of day, pressing the button will:
+        - In the evening: toggle the boost on/off
+        - When it's dark (outside the evening window): turn the light on or off
+        - During the day: only turn the light off
       selector:
         device:
           integration: zha
     timer_entity:
       name: Timer Entity
-      description: Timer for boost duration
+      description: >
+        A dedicated timer helper (create one in Settings → Automations & Scenes → Helpers).
+        The automation will control the duration — you don't need to set the timer duration in the helper itself.
       selector:
         entity:
           domain: timer
+    evening_end_time:
+      name: Evening Window End Time
+      description: "The time when the evening window ends (must be between 12:01 and 23:59) and the dimmed light switches off"
+      default: "22:00:00"
+      selector:
+        time:          
     elevation_sensor:
       name: Solar Elevation Sensor
       description: Sensor providing the current solar elevation
@@ -135,7 +154,7 @@ action:
       boost_duration_s: !input boost_duration
       elevation_threshold_deg: !input elevation_threshold
       mid_day_start_str: "12:00:00"
-      quiet_end_time_str: "21:00:00"
+      quiet_end_time_str: !input evening_end_time
 
   - alias: Step 2a · Compute Sun/Time Booleans
     variables:
@@ -159,14 +178,14 @@ action:
         {% elif trigger.id == 'boost_timer_done' %}timer_done
         {% elif trigger.id == 'startup' %}startup
         {% else %}other{% endif %}
-      button_pressed: "{{ event_source == 'button' }}"
-      
+      source_is_button: "{{ event_source == 'button' }}"
+      source_is_motion_start: "{{ event_source in ['motion', 'door'] }}"
 
   - alias: Step 2c · Compute Desired Baseline
     variables:
       want_boost: >-
         {% set wb = boost_active %}
-        {% if button_pressed %}
+        {% if source_is_button %}
           {% if not dark_now %}
             {% set wb = false %}
           {% elif in_evening_window %}
@@ -182,7 +201,9 @@ action:
               {% set wb = true %}
             {% endif %}
           {% endif %}
-        {% endif %}
+        {% elif dark_now and source_is_motion_start %}
+          {% set wb = true %}
+        {% endif %}        
         {{ wb }}
       desired_on: "{{ want_boost or in_evening_window }}"
       desired_brightness_pct: >-
