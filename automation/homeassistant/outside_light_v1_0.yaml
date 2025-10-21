@@ -27,7 +27,7 @@ blueprint:
       name: Door Sensor
       description: >
         A door sensor that triggers the light to turn on at full brightness when the door opens.
-        Like the motion sensor, this  happens when it's dark.
+        Like the motion sensor, this happens when it's dark.
       selector:
         entity:
           domain: binary_sensor
