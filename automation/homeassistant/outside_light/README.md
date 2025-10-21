@@ -1,80 +1,79 @@
----
-
 # 🌙 Outside Light Presence Evening · v1.0
 
-### Smart outdoor lighting control — fully elevation-driven
+### Smart Outdoor Lighting — Elevation-Based, Time-Aware
 
-This Home Assistant **blueprint** intelligently manages your outdoor light using the **solar elevation**, motion, door activity, and a manual button.
-It keeps the light dimly on in the evening, brightens temporarily on movement, and smoothly adapts between day and night — without relying on fixed sunrise/sunset times.
+This Home Assistant **blueprint** provides intelligent control for your outdoor light using **solar elevation**, **motion**, **door sensors**, and a **manual button**.
+
+It automatically dims the light in the evening, boosts to full brightness when motion or a door opens at night, and adapts behavior based on time of day — all without relying on fixed sunrise/sunset times.
 
 ---
 
 ## ⚙️ Features
 
-* **Automatic evening dimming**
-  When it’s dark *after midday* but before 21:00, the light turns on at a low brightness (default 20 %).
+* **Evening Window Dimming**  
+  When it’s dark between noon and your chosen end time, the light turns on at a low brightness (default: 20%).
 
-* **Motion & door boost**
-  Movement or door activity while it’s dark sets the light to full brightness (default 100 %) for a timed boost (default 120 s).
+* **Motion & Door Boost**  
+  Any motion or door activity while it’s dark triggers the light to go to full brightness (default: 100%) for a set duration (default: 2 minutes).
 
-* **Button integration**
-  The button behaves intuitively:
+* **Smart Button Control**  
+  A single Zigbee button adapts behavior based on the time of day:
+  - **Evening**: toggles boost on/off
+  - **Dark (outside evening window)**: toggles light on/off
+  - **Daytime**: only turns the light off
 
-  * During the evening: toggles between dim and boost modes.
-  * When dark outside the evening window: toggles light on/off via a 2-minute boost.
-  * During daylight: turns the light off (if it’s on).
+* **Elevation-Based Logic**  
+  Uses a solar elevation sensor and a configurable threshold (e.g., 0° or –3°) to determine when it’s dark — no reliance on fixed sunset times.
 
-* **Fully elevation-based**
-  Uses the solar elevation sensor and a configurable threshold (e.g. 0° or –3°) to decide when it’s dark — no dependency on sunset events.
-
-* **Independent of real time**
-  Logic works the same all year — dynamic darkness detection keeps it seasonal-proof.
+* **Seasonal Adaptation**  
+  Works consistently year-round — the automation adapts to changing daylight patterns automatically.
 
 ---
 
 ## 🧩 Required Inputs
 
-| Input                       | Description                                         |
-| --------------------------- | --------------------------------------------------- |
-| **Light Entity**            | The light to control                                |
-| **Motion Sensor**           | Motion sensor to trigger boost                      |
-| **Door Sensor**             | Door sensor to trigger boost                        |
-| **Button Device (ZHA)**     | Manual toggle button                                |
-| **Timer Entity**            | Timer helper for boost duration                     |
-| **Solar Elevation Sensor**  | Numeric sensor with current solar elevation         |
-| **Low Brightness (%)**      | Brightness for evening baseline *(default: 20 %)*   |
-| **High Brightness (%)**     | Brightness for boost *(default: 100 %)*             |
-| **Boost Duration (s)**      | How long the boost lasts *(default: 120 s)*         |
-| **Elevation Threshold (°)** | Considered “dark” below this angle *(default: 0 °)* |
+| Input                        | Description                                                                 |
+|-----------------------------|-----------------------------------------------------------------------------|
+| **Light to Control**        | A dimmable light that supports brightness control                          |
+| **Motion Sensor**           | Triggers full brightness when motion is detected (anytime it’s dark)       |
+| **Door Sensor**             | Triggers full brightness when the door opens (anytime it’s dark)           |
+| **Button Device (Zigbee)**  | A Zigbee wall button or remote for manual override                         |
+| **Timer Helper**            | A dedicated timer (created in Home Assistant) for boost duration            |
+| **Evening Window End Time** | Time when the evening window ends (default: 22:00)                         |
+| **Solar Elevation Sensor**  | A sensor providing the current solar elevation                             |
+| **Low Brightness (%)**      | Brightness during the evening window *(default: 20 %)*                     |
+| **High Brightness (%)**     | Brightness during boost *(default: 100 %)*                                 |
+| **Boost Duration (s)**      | How long the boost lasts *(default: 120 s)*                                |
+| **Elevation Threshold (°)** | Solar elevation below which it’s considered dark *(default: 0 °)*          |
 
 ---
 
 ## 🕹️ Behavior Summary
 
-| Condition                                           | Light Behavior                                                                                                |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| **Daytime**                                         | Light off. Button press → off only.                                                                           |
-| **Evening window (dark, after noon, before 21:00)** | Light at low brightness (20 %). Motion, door, or button → boost to 100 % for 2 min.                           |
-| **Dark, after 21:00**                               | Light off unless motion/door/button triggers a 2-min boost.                                                   |
-| **Boost active**                                    | Timer keeps light at 100 %. When timer finishes → returns to 20 % if still in evening window, else turns off. |
+| Condition                                             | Light Behavior                                                                 |
+|------------------------------------------------------|--------------------------------------------------------------------------------|
+| **Daytime (sun high)**                               | Light off. Button press → off only.                                            |
+| **Evening window (dark, noon to end time)**          | Light on at low brightness. Motion/door/button → boost to 100% for set time.   |
+| **Night (dark after end time)**                      | Light off unless motion/door/button triggers a boost.                         |
+| **Boost active**                                     | Light at 100%. After timer ends → returns to 20% if still in window, else off. |
 
 ---
 
 ## 🧠 Design Notes
 
-* Built entirely with **variables** and clean, traceable logic — no hardcoded entities.
-* Based purely on **elevation threshold**, adjustable for tuning darkness sensitivity.
-* Works with any ZHA button, motion sensor, and light.
-* Can easily be duplicated for multiple lights (e.g. front door / back door).
+* Built with **clear, traceable logic** using variables — no hardcoded entities.
+* Fully **elevation-driven**, allowing fine-tuned sensitivity to twilight.
+* Works with **any Zigbee button**, motion sensor, and dimmable light.
+* Easily duplicated for multiple lights (e.g., front/back doors).
 
 ---
 
 ### 🪄 Tip
 
-For smoother twilight handling, try setting
+For smoother twilight detection, try setting  
 `Elevation Threshold` = **–0.5° to –2°**.
 
 ---
 
-**Author:** Home Automation v1.5 logic adapted for blueprint use
+**Author:** Home Automation v1.5 logic adapted for blueprint use  
 **Version:** v1.0 (blueprint format)
