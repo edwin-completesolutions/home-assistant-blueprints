@@ -1,0 +1,109 @@
+blueprint:
+  name: Eeeze zolder controller
+  description: |
+    Switch a de-humidifier on-or-off according to a bedtime schedule, attic temperature and window state.
+    • OFF when bedtime is on, temperature ≥ limit, or the window is open.  
+    • ON  when bedtime is off, temperature < limit and the window is closed.
+  domain: automation
+
+  input:
+    deh_switch:
+      name: De-humidifier switch
+      selector:
+        entity: { domain: switch }
+
+    temp_sensor:
+      name: Temperature sensor
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    window_sensor:
+      name: Window sensor
+      selector:
+        entity: { domain: binary_sensor }
+
+    bedtime_schedule:
+      name: Bedtime schedule
+      selector:
+        entity: { domain: schedule }
+
+    temp_limit:
+      name: Temperature limit (°C)
+      default: 24
+      selector:
+        number:
+          min: 10
+          max: 35
+          step: 0.5
+          unit_of_measurement: "°C"
+
+mode: single
+
+#################################################################
+#                         TRIGGERS                              #
+#################################################################
+trigger:
+  - platform: numeric_state
+    entity_id: !input temp_sensor
+    above: !input temp_limit
+
+  - platform: numeric_state
+    entity_id: !input temp_sensor
+    below: !input temp_limit
+
+  - platform: state
+    entity_id: !input window_sensor
+    to: "on"
+
+  - platform: state
+    entity_id: !input window_sensor
+    to: "off"
+
+  - platform: state
+    entity_id: !input bedtime_schedule
+    to: "on"
+
+  - platform: state
+    entity_id: !input bedtime_schedule
+    to: "off"
+
+#################################################################
+#                          ACTIONS                              #
+#################################################################
+action:
+  # ── FIRST: expose everything we want to see in the trace ──
+  - variables:
+      deh_switch_entity: !input deh_switch
+      temp_sensor_entity: !input temp_sensor
+      window_sensor_entity: !input window_sensor
+      bedtime_entity:     !input bedtime_schedule
+      temp_limit:         !input temp_limit
+
+      current_temp: "{{ states(temp_sensor_entity) | float(1000) }}"
+      window_open:  "{{ is_state(window_sensor_entity, 'on') }}"
+      bedtime_on:   "{{ is_state(bedtime_entity, 'on') }}"
+
+  # ── THEN: decide what to do ──
+  - choose:
+
+      # --- TURN OFF ----------------------------------------------------------
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ bedtime_on or (current_temp >= (temp_limit | float)) or window_open }}
+        sequence:
+          - service: switch.turn_off
+            target: { entity_id: "{{ deh_switch_entity }}" }
+
+      # --- TURN ON -----------------------------------------------------------
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ (not bedtime_on)
+                 and (current_temp < (temp_limit | float))
+                 and (not window_open) }}
+        sequence:
+          - service: switch.turn_on
+            target: { entity_id: "{{ deh_switch_entity }}" }

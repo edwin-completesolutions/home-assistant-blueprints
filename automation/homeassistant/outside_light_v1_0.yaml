@@ -1,0 +1,229 @@
+blueprint:
+  name: Outside Light Presence Evening v1.0
+  description: >
+    Elevation-driven. Evening window (dark after midday..21:00) → 20%.
+    While dark: motion/door → 100% with boost timer.
+    Button is folded into baseline: evening→toggle boost; dark outside window→toggle on/off via boost; daytime→only turn off.
+  domain: automation
+  input:
+    light_entity:
+      name: Light Entity
+      description: The light to control
+      selector:
+        entity:
+          domain: light
+    motion_entity:
+      name: Motion Sensor
+      description: Motion sensor to trigger the light
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: motion
+    door_entity:
+      name: Door Sensor
+      description: Door sensor to trigger the light
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: door
+    button_device:
+      name: Button Device
+      description: ZHA button device for manual control
+      selector:
+        device:
+          integration: zha
+    timer_entity:
+      name: Timer Entity
+      description: Timer for boost duration
+      selector:
+        entity:
+          domain: timer
+    elevation_sensor:
+      name: Solar Elevation Sensor
+      description: Sensor providing the current solar elevation
+      selector:
+        entity:
+          domain: sensor
+    brightness_low:
+      name: Low Brightness (%)
+      description: Brightness percentage for evening baseline
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: box
+    brightness_high:
+      name: High Brightness (%)
+      description: Brightness percentage for boost
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: box
+    boost_duration:
+      name: Boost Duration (seconds)
+      description: Duration of boost when motion/door triggered
+      default: 120
+      selector:
+        number:
+          min: 10
+          max: 3600
+          unit_of_measurement: seconds
+          mode: box
+    elevation_threshold:
+      name: Elevation Threshold (degrees)
+      description: Solar elevation threshold considered “dark”
+      default: 0
+      selector:
+        number:
+          min: -30
+          max: 30
+          unit_of_measurement: degrees
+          mode: box
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - id: motion_on
+    platform: state
+    entity_id: !input motion_entity
+    to: "on"
+
+  - id: door_open
+    platform: state
+    entity_id: !input door_entity
+    to: "on"
+
+  - id: elevation_update
+    platform: state
+    entity_id: !input elevation_sensor
+
+  - id: startup
+    platform: homeassistant
+    event: start
+
+  - id: button_short
+    platform: device
+    domain: zha
+    device_id: !input button_device
+    type: remote_button_short_press
+    subtype: button_1
+
+  - id: boost_timer_done
+    platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input timer_entity
+
+condition: []
+
+action:
+  - alias: Step 1 · Define Entities and Constants
+    variables:
+      e_light: !input light_entity
+      e_motion: !input motion_entity
+      e_door: !input door_entity
+      e_elevation: !input elevation_sensor
+      e_timer: !input timer_entity
+      brightness_low_pct: !input brightness_low
+      brightness_high_pct: !input brightness_high
+      boost_duration_s: !input boost_duration
+      elevation_threshold_deg: !input elevation_threshold
+      mid_day_start_str: "12:00:00"
+      quiet_end_time_str: "21:00:00"
+
+  - alias: Step 2a · Compute Sun/Time Booleans
+    variables:
+      sun_elev: "{{ states(e_elevation) | float(0) }}"
+      dark_now: "{{ sun_elev <= elevation_threshold_deg }}"
+      after_mid_day: "{{ now() >= today_at(mid_day_start_str) }}"
+      before_quiet_end: "{{ now() < today_at(quiet_end_time_str) }}"
+      in_evening_window: "{{ dark_now and after_mid_day and before_quiet_end }}"
+
+  - alias: Step 2b · Compute States and Source
+    variables:
+      light_is_on: "{{ is_state(e_light, 'on') }}"
+      boost_active: "{{ is_state(e_timer, 'active') }}"
+      light_brightness_raw: "{{ state_attr(e_light, 'brightness') | int(0) }}"
+      light_brightness_pct: "{{ ((light_brightness_raw / 255) * 100) | round(0) }}"
+      event_source: >
+        {% if trigger.id == 'button_short' %}button
+        {% elif trigger.id == 'motion_on' %}motion
+        {% elif trigger.id == 'door_open' %}door
+        {% elif trigger.id == 'elevation_update' %}sun
+        {% elif trigger.id == 'boost_timer_done' %}timer_done
+        {% elif trigger.id == 'startup' %}startup
+        {% else %}other{% endif %}
+      button_pressed: "{{ event_source == 'button' }}"
+      
+
+  - alias: Step 2c · Compute Desired Baseline
+    variables:
+      want_boost: >-
+        {% set wb = boost_active %}
+        {% if button_pressed %}
+          {% if not dark_now %}
+            {% set wb = false %}
+          {% elif in_evening_window %}
+            {% if boost_active %}
+              {% set wb = false %}
+            {% elif light_brightness_pct == brightness_low_pct %}
+              {% set wb = true %}
+            {% endif %}
+          {% else %}
+            {% if light_is_on %}
+              {% set wb = false %}
+            {% else %}
+              {% set wb = true %}
+            {% endif %}
+          {% endif %}
+        {% endif %}
+        {{ wb }}
+      desired_on: "{{ want_boost or in_evening_window }}"
+      desired_brightness_pct: >-
+        {% if want_boost %}
+          {{ brightness_high_pct }}
+        {% elif in_evening_window %}
+          {{ brightness_low_pct }}
+        {% else %}
+          0
+        {% endif %}
+
+  - alias: Step 3 · Apply Changes
+    sequence:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ want_boost and not boost_active }}"
+            sequence:
+              - action: timer.start
+                target:
+                  entity_id: "{{ e_timer }}"
+                data:
+                  duration: "{{ boost_duration_s }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ (not want_boost) and boost_active }}"
+            sequence:
+              - action: timer.cancel
+                target:
+                  entity_id: "{{ e_timer }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ desired_on }}"
+            sequence:
+              - action: light.turn_on
+                target:
+                  entity_id: "{{ e_light }}"
+                data:
+                  brightness_pct: "{{ desired_brightness_pct }}"
+        default:
+          - action: light.turn_off
+            target:
+              entity_id: "{{ e_light }}"
