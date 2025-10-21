@@ -41,6 +41,18 @@ blueprint:
         entity:
           filter:
             - domain: button
+    notification_title:
+      name: Notification title (optional)
+      description: Title for the notification message (default is "Doorbell")
+      default: "Doorbell"
+      selector:
+        text:
+    notification_message:
+      name: Notification message prefix (optional)
+      description: Prefix for the notification message - timestamp will be automatically added (default is "Doorbell rang at")
+      default: "Doorbell rang at"
+      selector:
+        text:
 
 mode: single
 
@@ -62,7 +74,9 @@ variables:
   v_motion_entity: !input motion_sensor
   v_light_identify_button: !input light_button
   v_notify_device: !input notify_device
-  v_notify_title: Doorbell
+  v_notify_title: !input notification_title
+  v_notify_message_prefix: !input notification_message
+  v_notify_message: "{{ v_notify_message_prefix }} {{ now().timestamp() | timestamp_custom('%Y-%m-%d %H:%M:%S') }}"
   v_lookback_sec: 15
   v_cooldown_sec: 10
   v_motion_now: "{{ is_state(v_motion_entity, 'on') }}"
@@ -81,8 +95,6 @@ variables:
   v_ok_cooldown: >
     {% set last = state_attr(this.entity_id, 'last_triggered') %}
     {{ last is none or (as_timestamp(now()) - as_timestamp(last)) >= v_cooldown_sec }}
-  v_message: >
-    Doorbell rang at {{ now().timestamp() | timestamp_custom('%Y-%m-%d %H:%M:%S') }}
   v_has_light_button: "{{ (v_light_identify_button | string) | length > 0 }}"
   v_has_notify_device: "{{ (v_notify_device | string) | length > 0 }}"
 
@@ -117,4 +129,4 @@ action:
             domain: mobile_app
             type: notify
             title: "{{ v_notify_title }}"
-            message: "{{ v_message }}"
+            message: "{{ v_notify_message }}"
