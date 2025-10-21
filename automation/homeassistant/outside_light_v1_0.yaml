@@ -186,7 +186,7 @@ action:
           {% set wb = true %}
         {% endif %}        
         {{ wb }}
-      desired_on: "{{ want_boost or dark_now }}"
+      desired_on: "{{ want_boost or in_evening_window }}"
       desired_brightness_pct: >-
         {% if want_boost %}
           {{ brightness_high_pct }}
