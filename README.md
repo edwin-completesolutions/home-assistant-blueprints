@@ -1,20 +1,28 @@
 # Home Assistant Blueprints
 
-A personal collection of Home Assistant blueprints created and used in my own smart-home setup.
+A personal collection of Home Assistant blueprints used in my own smart-home setup.
 
 ## 🧠 About
-These blueprints automate various parts of my Home Assistant environment.  
-You’re free to explore, reuse, or adapt them under the terms of the [MIT License](LICENSE).
+These blueprints automate parts of my Home Assistant environment.  
+You’re welcome to explore, reuse, or adapt them under the [MIT License](LICENSE).
 
 ## ⚙️ Usage
-1. Copy any `.yaml` blueprint file into your Home Assistant `/config/blueprints/automation/` folder.  
-2. Reload Blueprints in **Settings → Automations & Scenes → Blueprints → Reload**.  
-3. Create a new automation using the imported blueprint.
+1. Copy any `.yaml` blueprint file into: `/config/blueprints/automation/homeassistant/`
+2. In **Developer Tools → YAML**, click **Check Configuration** to validate.
+3. If all checks pass, click **Reload Automations** (same screen).
+4. Go to **Settings → Automations & Scenes → Blueprints → Create Automation** and select the blueprint.
+
+## 📁 Folder Layout
+/config  
+  blueprints/  
+    automation/  
+      homeassistant/  
+        your-blueprint.yaml
 
 ## 🧾 License
 This project is licensed under the [MIT License](LICENSE).  
-You may use, modify, and distribute the files freely, but **without warranty or support**.
+Use, modify, and distribute freely—**no warranty or support**.
 
 ---
 
-💡 *Use at your own risk. These blueprints work for me, but may need adjustments for your setup.*
+💡 Always validate your configuration before reloading automations. These blueprints work for me but may require adaptation for your setup.
