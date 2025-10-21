@@ -1,11 +1,11 @@
-# í ¾í·­ Home Assistant Automation Style Guide (v1.1)
+# Home Assistant Automation Style Guide (v1.1)
 
-### í ¼í¾¯ Purpose
+### Purpose
 Establish a clear, consistent, and maintainable format for Home Assistant automations written in YAML â€” with explicit aliasing, variables, version control, and structured logic flow.
 
 ---
 
-## í ½í·‚ 0. Automations inside Packages (separate YAML file)
+## 0. Automations inside Packages (separate YAML file)
 
 When placing automations inside a package file (via `packages:` or `!include_dir_named`), apply these extra rules:
 
@@ -58,7 +58,7 @@ Indentation:
 
 ---
 
-## í ¾í·± 1. Base structure for automations
+## 1. Base structure for automations
 
 Always use this layout:
 
@@ -76,7 +76,7 @@ In package files, this section is nested under the automation: key.
 
 ---
 
-## í ¾íº¶ 2. Aliases
+## 2. Aliases
 
 Each major logical step in the automation should have an alias line.
 
@@ -90,7 +90,7 @@ Use descriptive verbs. Avoid abbreviations except for units (_w, _pct, _s).
 
 ---
 
-## í ¾í·© 3. Variables
+## 3. Variables
 
 - Define variables explicitly with a variables: block.
 - Use snake_case naming and one variable per line.
@@ -119,7 +119,7 @@ Example:
 
 ---
 
-## í ¾í·® 5. Action Flow
+## 5. Action Flow
 
 Structure actions in clear logical stages:
 
@@ -132,21 +132,21 @@ Structure actions in clear logical stages:
 
 ---
 
-## í ¾í·  6. If / Else Logic
+## 6. If / Else Logic
 
 - Use full if / elif / else blocks for logic clarity.
 - Use choose: when you need multiple distinct action paths.
 
 ---
 
-## í ¾í·± 7. Constants and Parameters
+## 7. Constants and Parameters
 
 - Keep constants local to where they are used.
 - For shared parameters, use input_number.* helpers with descriptive names.
 
 ---
 
-## í ¾í·¾ 8. Description Field
+## 8. Description Field
 
 - Use block style (>) for multi-line descriptions.
 - First line: short summary.
@@ -160,7 +160,7 @@ Example:
 
 ---
 
-## í ¾í·° 9. Services and Updates
+## 9. Services and Updates
 
 - Always specify both target and data fields explicitly.
 
@@ -174,14 +174,14 @@ Example:
 
 ---
 
-## í ¾í·© 10. Debug and Status
+## ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 10. Debug and Status
 
 - Use helpers like input_text.solarflow_state_desc for human-readable status.
 - Keep output text concise, e.g. â€œCharging blocked â€“ SoC too highâ€.
 
 ---
 
-## í ½í³ 11. Formatting Rules
+## ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 11. Formatting Rules
 
 - Use two spaces per indent level, no tabs.
 - Compare states using 'on' / 'off'.
@@ -190,7 +190,7 @@ Example:
 
 ---
 
-## í ¾í·© 12. Versioning and ID Policy
+## ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 12. Versioning and ID Policy
 
 - Include version number in alias (v1, v2, v3, ...).
 - Keep id stable across all versions.
