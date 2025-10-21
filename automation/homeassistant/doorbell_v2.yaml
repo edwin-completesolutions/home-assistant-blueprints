@@ -16,8 +16,8 @@ blueprint:
               device_class:
                 - vibration
     motion_sensor:
-      name: Front door motion sensor
-      description: Motion or occupancy sensor positioned at the front door entrance to confirm visitor presence and reduce false detections
+      name: Motion sensor
+      description: Motion or occupancy sensor positioned near the entrance to confirm visitor presence and reduce false detections
       selector:
         entity:
           filter:
@@ -52,7 +52,7 @@ trigger:
     platform: state
     entity_id: !input vibration_sensor
     to: "on"
-  - alias: Motion detected at front door
+  - alias: Motion detected
     platform: state
     entity_id: !input motion_sensor
     to: "on"
