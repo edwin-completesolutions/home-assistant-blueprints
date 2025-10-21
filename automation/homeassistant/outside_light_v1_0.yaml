@@ -182,7 +182,7 @@ action:
               {% set wb = true %}
             {% endif %}
           {% endif %}
-        {% elif in_evening_window and source_is_motion_start %}
+        {% elif dark_now and source_is_motion_start %}
           {% set wb = true %}
         {% endif %}        
         {{ wb }}
