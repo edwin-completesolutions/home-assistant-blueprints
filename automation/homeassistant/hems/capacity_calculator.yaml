@@ -63,12 +63,21 @@ trigger:
     trigger: state
 
 action:
+  - alias: Read entity ids into variables
+    variables:
+      e_soc_pct: !input e_soc_pct
+      e_min_soc_pct: !input e_min_soc_pct
+      e_max_soc_pct: !input e_max_soc_pct
+      e_total_wh: !input e_total_wh
+      e_stored_wh: !input e_stored_wh
+      e_remaining_wh: !input e_remaining_wh
+
   - alias: Read current values
     variables:
-      v_soc_pct: "{{ states(!input e_soc_pct) | float(0) }}"
-      v_min_soc_pct: "{{ states(!input e_min_soc_pct) | float(0) }}"
-      v_max_soc_pct: "{{ states(!input e_max_soc_pct) | float(100) }}"
-      v_total_wh: "{{ states(!input e_total_wh) | float(0) }}"
+      v_soc_pct: "{{ states(e_soc_pct) | float(0) }}"
+      v_min_soc_pct: "{{ states(e_min_soc_pct) | float(0) }}"
+      v_max_soc_pct: "{{ states(e_max_soc_pct) | float(100) }}"
+      v_total_wh: "{{ states(e_total_wh) | float(0) }}"
 
   - alias: Compute band and clamped deltas in %
     variables:
@@ -108,14 +117,14 @@ action:
   - alias: Write stored Wh helper
     action: input_number.set_value
     target:
-      entity_id: !input e_stored_wh
+      entity_id: "{{ e_stored_wh }}"
     data:
       value: "{{ v_stored_wh }}"
 
   - alias: Write remaining Wh helper
     action: input_number.set_value
     target:
-      entity_id: !input e_remaining_wh
+      entity_id: "{{ e_remaining_wh }}"
     data:
       value: "{{ v_remaining_wh }}"
 
