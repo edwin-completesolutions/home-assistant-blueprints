@@ -47,11 +47,14 @@ This forecast determines whether to store or discharge energy based on available
 
 ## Hardware
 
-The system uses a **plug-in battery** that is connected through a **Shelly Plug S**.
+The system uses a **Zendure SolarFlow 2400** with connected battery modules.  
+In this setup it is **integrated through MQTT** for **local management** and monitoring.
 
-- The Shelly plug measures both **energy in (charging)** and **energy out (discharging)**, allowing the battery to be configured in Home Assistant as **Home Battery Storage**, even though the battery itself does not expose sensors for total incoming and outgoing energy.  
-- It also provides a **hardware failsafe**, since the EMS can remotely cut power to the battery through the plug if needed.  
-- This makes the setup simple, safe, and fully local — no cloud communication required.
+- The battery is connected through a **Shelly Plug S Gen3**, which measures both **energy in (charging)** and **energy out (discharging)**.  
+  This allows the battery to be configured in Home Assistant as **Home Battery Storage**, as the Zendure system itself does not expose MQTT sensors for total incoming and outgoing energy.  
+  Charging and discharging limits are configured to stay safely **within the rated limits of the Shelly Plug S Gen3**, ensuring reliable long-term operation.  
+- The Shelly plug also provides a **hardware failsafe**, allowing the EMS to disconnect power to the battery if required.  
+- This approach makes the setup **simple, safe, and completely local**, without relying on any cloud services.
 
 ---
 
