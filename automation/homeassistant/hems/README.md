@@ -45,6 +45,16 @@ This forecast determines whether to store or discharge energy based on available
 
 ---
 
+## Hardware
+
+The system uses a **plug-in battery** that is connected through a **Shelly Plug S**.
+
+- The Shelly plug measures both **energy in (charging)** and **energy out (discharging)**, allowing the battery to be configured in Home Assistant as **Home Battery Storage**, even though the battery itself does not expose sensors for total incoming and outgoing energy.  
+- It also provides a **hardware failsafe**, since the EMS can remotely cut power to the battery through the plug if needed.  
+- This makes the setup simple, safe, and fully local — no cloud communication required.
+
+---
+
 ## Automations Overview
 
 The EMS consists of three cooperating automations:
@@ -52,17 +62,17 @@ The EMS consists of three cooperating automations:
 1. **Remaining Capacity Calculation**  
    - Computes how much energy is currently stored and how much capacity remains in the battery.  
    - Runs whenever the SoC or configured limits change.  
-   - Provides key values for the other automations.
+   - Provides core input values for the next automation.
 
 2. **Discharge Allow Decision**  
    - Uses the **remaining capacity** together with the **forecasted solar production** for the rest of the day.  
    - Decides whether discharging should be allowed.  
-   - If the forecasted remaining solar energy would exceed available capacity, discharging is enabled; otherwise, it remains disabled.
+   - If forecasted remaining solar would exceed available capacity, discharging is enabled; otherwise, it stays disabled.
 
 3. **Zero-on-Meter Control**  
    - The main control loop that adjusts battery power through MQTT.  
-   - Uses the outputs of the first two automations to determine how much to charge or discharge.  
-   - Reacts to live measurements from the **P1 power meter**, maintaining near-zero grid flow while respecting the configured limits.
+   - Uses the outcomes of the first two automations to determine how much to charge or discharge.  
+   - Reacts to live power data from the **P1 meter**, maintaining near-zero grid flow while respecting all limits.
 
 Together, these three automations provide stable, autonomous, and fully local energy management.
 
@@ -71,10 +81,11 @@ Together, these three automations provide stable, autonomous, and fully local en
 ## Philosophy
 
 This project focuses on:
-- **Local autonomy** — all logic runs in Home Assistant, no cloud control.  
+- **Local autonomy** — all logic runs in Home Assistant, no vendor cloud.  
 - **Simplicity** — predictable and transparent operation.  
-- **Efficiency** — maximum use of self-generated solar energy.  
-- **Battery longevity** — careful SoC limits and minimal toggling.
+- **Efficiency** — maximum self-consumption of solar energy.  
+- **Battery longevity** — careful SoC limits and minimal toggling.  
+- **Safety** — integrated hardware cutoff via Shelly monitoring.
 
 ---
 
