@@ -226,10 +226,23 @@ action:
 
   - alias: "Step 5 · Compute Desired Discharge Permission"
     variables:
-      debug_v_storage_candidate_wh: "{{ v_storage_candidate_wh }}"
-      debug_v_batt_remaining_wh: "{{ v_batt_remaining_wh }}"
-      debug_v_expected_self_use_wh: "{{ v_expected_self_use_wh }}"
-      v_discharge_allowed_desired: |-
+      v_hint: "Warning we will still store some energy if current production is more then current use" 
+      v_expected_charging_remaining_today_wh: "{{ v_storage_candidate_wh }}"
+      v_batt_capacity_remaining_wh: "{{ v_batt_remaining_wh }}"
+      v_expected_self_usage_wh: "{{ v_expected_self_use_wh | round(0) }}"
+      v_remaining_forecast_wh: "{{ v_forecast_remaining_wh | round(0) }}"
+      v_expected_grid_overflow_wh: >-
+        {% set forecast = v_forecast_remaining_wh | float(0) %}
+        {% set selfuse  = v_expected_self_use_wh | float(0) %}
+        {% set canstore  = v_batt_remaining_wh | float(0) %}
+        {% set overflow = forecast - (selfuse+canstore) %}
+        {% if overflow < 0 %}
+          0
+        {% else %}
+          {{ overflow | float(0) }}
+        {% endif %}
+
+      v_discharge_desired: |-
         {% if (v_discharge_blocked | bool(false)) %}
           {% set discharge_allowed_desired = false %}
         {% else %}
@@ -245,9 +258,10 @@ action:
     choose:
       - conditions:
           - condition: template
-            value_template: "{{ v_discharge_allowed_desired != v_discharge_allowed_now }}"
+            value_template: "{{ v_discharge_desired != v_discharge_allowed_now }}"
         sequence:
-          - action: "input_boolean.turn_{{ 'on' if v_discharge_allowed_desired else 'off' }}"
+          # once on it remain on till the next morningwindow when charging could start but we might block it first to get to a minimum level
+          - action: "input_boolean.turn_{{ 'on' if v_discharge_desired else 'off' }}"
             target:
               entity_id: "{{ e_discharge_allowed }}"
 
