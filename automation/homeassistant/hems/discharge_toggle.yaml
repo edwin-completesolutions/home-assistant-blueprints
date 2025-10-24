@@ -40,7 +40,8 @@ blueprint:
         in other automations to enable or disable discharge behavior.
       selector:
         entity:
-          domain: input_boolean
+          filter:
+            domain: input_boolean
 
     soc_sensor:
       name: State of Charge (SoC) Sensor
@@ -49,7 +50,8 @@ blueprint:
         Used to evaluate charging and discharging limits.
       selector:
         entity:
-          domain: sensor
+          filter:
+            domain: sensor
 
     min_soc_number:
       name: Minimum SoC Number
@@ -58,7 +60,8 @@ blueprint:
         Discharge is prevented if the battery level falls below this limit.
       selector:
         entity:
-          domain: number
+          filter:
+            domain: number
 
     max_soc_number:
       name: Maximum SoC Number
@@ -67,7 +70,8 @@ blueprint:
         When set to 100 %, discharge is blocked until the battery reaches full charge.
       selector:
         entity:
-          domain: number
+          filter:
+            domain: number
 
     energy_production_today_sensor:
       name: Energy Production Today (with wh_period)
@@ -79,7 +83,8 @@ blueprint:
         to calculate the remaining storable solar energy for the rest of the day.
       selector:
         entity:
-          domain: sensor
+          filter:
+            domain: sensor
 
     battery_remaining_energy_input:
       name: Battery Remaining Energy Input (Wh)
@@ -90,7 +95,8 @@ blueprint:
         here to compare against the forecasted solar surplus.
       selector:
         entity:
-          domain: input_number
+          filter:
+            domain: input_number
 
     house_baseload_watts:
       name: House Baseload Power (W)

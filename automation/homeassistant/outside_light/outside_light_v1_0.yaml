@@ -13,7 +13,9 @@ blueprint:
         The light entity to control. Must be a dimmable light that supports brightness adjustment.
       selector:
         entity:
-          domain: light
+          filter:
+            domain: light
+
     motion_entity:
       name: Motion Sensor
       description: >
@@ -21,8 +23,10 @@ blueprint:
         This happens whenever it's dark, regardless of the time of day.
       selector:
         entity:
-          domain: binary_sensor
-          device_class: motion
+          filter:
+            domain: binary_sensor
+            device_class: motion
+
     door_entity:
       name: Door Sensor
       description: >
@@ -30,8 +34,10 @@ blueprint:
         Like the motion sensor, this happens when it's dark.
       selector:
         entity:
-          domain: binary_sensor
-          device_class: door
+          filter:
+            domain: binary_sensor
+            device_class: door
+
     button_device:
       name: Button Device
       description: >
@@ -42,7 +48,9 @@ blueprint:
         - During the day: only turn the light off
       selector:
         device:
-          integration: zha
+          filter:
+            integration: zha
+
     timer_entity:
       name: Timer Entity
       description: >
@@ -50,19 +58,24 @@ blueprint:
         The automation will control the duration — you don't need to set the timer duration in the helper itself.
       selector:
         entity:
-          domain: timer
+          filter:
+            domain: timer
+
     evening_end_time:
       name: Evening Window End Time
       description: "The time when the evening window ends (must be between 12:01 and 23:59) and the dimmed light switches off"
       default: "22:00:00"
       selector:
         time:          
+    
     elevation_sensor:
       name: Solar Elevation Sensor
       description: Sensor providing the current solar elevation
       selector:
         entity:
-          domain: sensor
+          filter:
+            domain: sensor
+
     brightness_low:
       name: Low Brightness (%)
       description: Brightness percentage for evening baseline
@@ -73,6 +86,7 @@ blueprint:
           max: 100
           unit_of_measurement: "%"
           mode: box
+
     brightness_high:
       name: High Brightness (%)
       description: Brightness percentage for boost
@@ -83,6 +97,7 @@ blueprint:
           max: 100
           unit_of_measurement: "%"
           mode: box
+
     boost_duration:
       name: Boost Duration (seconds)
       description: Duration of boost when motion/door triggered
@@ -93,6 +108,7 @@ blueprint:
           max: 3600
           unit_of_measurement: seconds
           mode: box
+
     elevation_threshold:
       name: Elevation Threshold (degrees)
       description: Solar elevation threshold considered “dark”
@@ -109,32 +125,32 @@ max_exceeded: silent
 
 trigger:
   - id: motion_on
-    platform: state
+    trigger: state
     entity_id: !input motion_entity
     to: "on"
 
   - id: door_open
-    platform: state
+    trigger: state
     entity_id: !input door_entity
     to: "on"
 
   - id: elevation_update
-    platform: state
+    trigger: state
     entity_id: !input elevation_sensor
 
   - id: startup
-    platform: homeassistant
+    trigger: homeassistant
     event: start
 
   - id: button_short
-    platform: device
+    trigger: device
     domain: zha
     device_id: !input button_device
     type: remote_button_short_press
     subtype: button_1
 
   - id: boost_timer_done
-    platform: event
+    trigger: event
     event_type: timer.finished
     event_data:
       entity_id: !input timer_entity

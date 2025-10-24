@@ -11,48 +11,48 @@ blueprint:
       description: The sensor that reports the current state of charge (SoC) in percentage.
       selector:
         entity:
-          domain: sensor
-          multiple: false
+          filter:
+            domain: sensor
 
     e_min_soc_pct:
       name: Minimum SoC
       description: A number helper (or equivalent entity) representing the minimum allowed SoC percentage.
       selector:
         entity:
-          domain: number
-          multiple: false
+          filter:
+            domain: number
 
     e_max_soc_pct:
       name: Maximum SoC
       description: A number helper (or equivalent entity) representing the maximum allowed SoC percentage.
       selector:
         entity:
-          domain: number
-          multiple: false
+          filter:
+            domain: number
 
     e_total_wh:
       name: Total Capacity
       description: An input number (or equivalent entity) representing the total energy capacity in Watt-hours (Wh). This value is READ by the blueprint.
       selector:
         entity:
-          domain: input_number
-          multiple: false
+          filter:
+            domain: input_number
 
     e_stored_wh:
       name: Stored Energy Output
       description: An input number (or equivalent entity) that this blueprint will WRITE the computed stored energy (in Wh) to. This value is updated automatically by the blueprint.
       selector:
         entity:
-          domain: input_number
-          multiple: false
+          filter:
+            domain: input_number
 
     e_remaining_wh:
       name: Remaining Energy Output
       description: An input number (or equivalent entity) that this blueprint will WRITE the computed remaining energy (in Wh) to. This value is updated automatically by the blueprint.
       selector:
         entity:
-          domain: input_number
-          multiple: false
+          filter:
+            domain: input_number
 
 trigger:
   - entity_id:
