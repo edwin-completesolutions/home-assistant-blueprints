@@ -1,80 +1,103 @@
 blueprint:
   name: SolarFlow Discharge Allow Toggle
   description: |-
-    Manages SolarFlow battery discharge permissions by analyzing solar production forecasts, battery capacity, and household energy consumption patterns.
-    An underlying concept is that discharge is during solar hours is not allowed when the remaining solar production for the day can be fully stored in the battery.
-    This blueprint automatically determines when to allow or block battery discharge to optimize energy usage and prevent unnecessary grid export.
+    Manages SolarFlow battery discharge permissions by analyzing detailed hourly solar forecasts (from the `wh_period` attribute), household base load, and remaining battery capacity.
 
+    The automation determines how much solar energy can still be generated today and subtracts the estimated household base load for each hour within the solar window.  
+    The remaining positive energy balance (the hourly “future surplus”) represents how much solar energy could still be stored in the battery.  
+    If this potential surplus exceeds the battery’s remaining capacity, discharge is permitted to make room for the expected incoming energy.  
+    Otherwise, discharge is blocked to ensure all solar energy can be stored efficiently.
 
     How It Works:
 
-
-    1. Runs every hour and when SoC or Max-SoC changes.
-    2. Calculates sunrise / sunset windows and early-morning periods.
-    3. Blocks discharge when the battery is set to 100 % max‑SoC but has not yet reached it.
-    4. Blocks early-morning discharge if the battery is below minimum SoC + buffer and a solar forecast exists.
-    5. Allows discharge only when excess solar energy exceeds the battery's remaining storage capacity.
-    6. Updates an input boolean that controls whether the SolarFlow battery is allowed to discharge.
-    7. Once discharge has been permitted, it remains permitted until a subsequent evaluation changes the decision.
+    1. Runs every hour and whenever the SoC or Max-SoC values change.
+    2. Derives the solar window directly from the forecast hours that have non-zero production values (using `wh_period`).
+    3. Calculates per-hour surplus = forecasted Wh − (base load × hour fraction) and sums all remaining solar hours.
+    4. Blocks discharge when the battery is set to 100 % max-SoC but has not yet reached it.
+    5. Blocks early-morning discharge if SoC is below Min-SoC + buffer and solar production is expected.
+    6. Allows discharge only when the forecasted surplus (after baseload subtraction) exceeds the battery’s remaining storable energy.
+    7. Updates an input boolean helper that determines whether the SolarFlow may discharge.
+    8. Once discharge has been permitted, it remains permitted until the next blocking period (typically the next morning).
 
     Key Benefits:
 
-    * Prevents wasted solar energy by using battery storage strategically.
-    * Protects the battery by respecting the minimum SoC setting.
-    * Optimizes grid independence and reduces grid export.
-    * Automatically adapts to daily sunrise/sunset cycles.
-    * Once discharge is permitted, it remains permitted for the rest of that day (until the next daily evaluation).
+    * Prevents wasted solar energy by ensuring capacity is available when new production is expected.
+    * Protects the battery by respecting minimum SoC and early-morning buffer levels.
+    * Maximizes self-consumption and minimizes grid export.
+    * Adapts automatically to each day’s unique solar forecast pattern.
+    * Ensures nighttime or early-morning discharge only occurs if there was sufficient solar input earlier in the day.
 
-    Works in conjunction with the Battery Capacity Calculation Blueprint.
+    Works in conjunction with the **Battery Capacity Calculation** blueprint.
 
   domain: automation
 
   input:
     discharge_allowed_helper:
       name: Discharge Allowed Helper
-      description: Input boolean that controls whether discharge is allowed.
+      description: >
+        Input boolean that determines whether battery discharge is currently permitted.
+        This helper is automatically updated by the blueprint and can also be used
+        in other automations to enable or disable discharge behavior.
       selector:
         entity:
           domain: input_boolean
 
     soc_sensor:
       name: State of Charge (SoC) Sensor
-      description: Current battery level in percentage.
+      description: >
+        Sensor representing the current battery level in percentage.
+        Used to evaluate charging and discharging limits.
       selector:
         entity:
           domain: sensor
 
     min_soc_number:
       name: Minimum SoC Number
-      description: Minimum acceptable battery level setting (read-only from battery).
+      description: >
+        Numeric entity representing the configured minimum battery SoC (read-only from the battery system).
+        Discharge is prevented if the battery level falls below this limit.
       selector:
         entity:
           domain: number
 
     max_soc_number:
       name: Maximum SoC Number
-      description: Maximum battery level setting (read-only from battery).
+      description: >
+        Numeric entity representing the configured maximum battery SoC (read-only from the battery system).
+        When set to 100 %, discharge is blocked until the battery reaches full charge.
       selector:
         entity:
           domain: number
 
-    forecast_remaining_energy_sensor:
-      name: Forecast Remaining Energy Sensor
-      description: Sensor providing remaining solar energy forecast for today in kWh.
+    energy_production_today_sensor:
+      name: Energy Production Today (with wh_period)
+      description: >
+        Sensor that provides the expected hourly solar production forecast for today.
+        It must include an attribute **`wh_period`** containing a mapping of timestamps to
+        estimated production (in Wh per hour).  
+        The blueprint uses these hourly values, combined with your household base load,
+        to calculate the remaining storable solar energy for the rest of the day.
       selector:
         entity:
           domain: sensor
 
     battery_remaining_energy_input:
-      name: Battery Remaining Energy Input
-      description: Input number representing additional energy (in Wh) that can still be stored in the battery (read-only from Battery Capacity Calculation Blueprint).
+      name: Battery Remaining Energy Input (Wh)
+      description: >
+        Input number representing the additional energy capacity (in Wh) that can still
+        be stored in the battery.  
+        Typically provided by the **Battery Capacity Calculation** blueprint and used
+        here to compare against the forecasted solar surplus.
       selector:
         entity:
           domain: input_number
 
     house_baseload_watts:
       name: House Baseload Power (W)
-      description: Average power consumption during hours of solar
+      description: >
+        The average household consumption in watts during typical solar hours.
+        This value is subtracted from each forecasted solar hour to estimate
+        the true “surplus” energy available for charging the battery.
       default: 500
       selector:
         number:
@@ -84,7 +107,10 @@ blueprint:
 
     solar_end_margin_hours:
       name: Solar Margin (Hours)
-      description: Hours after sunrise to start considering solar production. Hours before sunset to stop considering solar production.
+      description: >
+        Number of hours after the first solar forecast hour to begin evaluating solar production,
+        and before the last solar forecast hour to stop considering it.
+        This trims the edges of the day to ignore minimal sunrise and sunset output.
       default: 1.5
       selector:
         number:
@@ -95,7 +121,10 @@ blueprint:
 
     early_morning_margin_hours:
       name: Early Morning Margin (Hours)
-      description: Hours after sunrise during which discharge is only allowed if SoC has reached an extra buffer level. Use this to block discharge in the morning till a base level to avoid charging 1% to say 21% and again discharging that, wait till we reach for example 30. Set the level in "Extra SoC Buffer (%)"
+      description: >
+        Hours after the first valid solar period during which discharge is only allowed
+        if the battery has reached a safe buffer level above Min SoC.
+        Prevents unnecessary short charge/discharge cycles early in the day.
       default: 3.0
       selector:
         number:
@@ -106,7 +135,11 @@ blueprint:
 
     min_soc_buffer_percent:
       name: Extra SoC Buffer (%)
-      description: Extra buffer above minimum SoC for early morning discharge. With level 10 and MinSoc 20 this ensures we charge to at least soc 30 before any discharge
+      description: >
+        Additional buffer above the minimum SoC that must be reached before early-morning
+        discharge is allowed.  
+        For example, with Min SoC = 20 % and Buffer = 10 %, discharge will only be allowed
+        once the battery reaches 30 %.
       default: 10
       selector:
         number:
@@ -114,12 +147,13 @@ blueprint:
           max: 30
           unit_of_measurement: "%"
 
+
 variables:
   e_discharge_allowed: !input discharge_allowed_helper
   e_soc_pct: !input soc_sensor
   e_min_soc_pct: !input min_soc_number
   e_max_soc_pct: !input max_soc_number
-  e_forecast_remaining_kwh: !input forecast_remaining_energy_sensor
+  e_energy_today: !input energy_production_today_sensor
   e_batt_remaining_wh: !input battery_remaining_energy_input
   v_house_baseload_w: !input house_baseload_watts
   v_solar_margin_h: !input solar_end_margin_hours
@@ -145,114 +179,115 @@ action:
       v_current_soc: "{{ states(e_soc_pct) | float(0) }}"
       v_min_soc: "{{ states(e_min_soc_pct) | float(0) }}"
       v_max_soc: "{{ states(e_max_soc_pct) | float(0) }}"
-      v_forecast_remaining_wh: >-
-        {% set raw = states(e_forecast_remaining_kwh) %}
-        {% set val = raw | float(none) %}
-        {% if raw in ['unknown', 'unavailable', 'none', ''] or val is none %}
-          0
-        {% else %}
-          {{ (val * 1000) | float(0) }}
-        {% endif %}
       v_batt_remaining_wh: "{{ states(e_batt_remaining_wh) | float(0) }}"
+      v_wh_period_map: >-
+        {% set m = state_attr(e_energy_today, 'wh_period') %}
+        {% if m is mapping %}{{ m }}{% else %}{{ dict() }}{% endif %}
 
-  - alias: "Step 2 · Calculate sunrise/sunset"
+
+  - alias: "Step 2 · Derive Solar Window From wh_period"
     variables:
-      # ---------- Timestamps ----------
       v_now_ts: "{{ as_timestamp(now()) | float(0) }}"
-      v_sunset_ts: "{{ as_timestamp(state_attr('sun.sun', 'next_setting')) | float(0) }}"
-      v_sunrise_ts: "{{ as_timestamp(state_attr('sun.sun', 'next_rising')) | float(0) }}"
-      v_todays_sunrise_ts: >-
-        {% set today_date = now().strftime('%Y-%m-%d') %}
-        {% set sunrise_local = as_local(as_datetime(state_attr('sun.sun', 'next_rising'))) %}
-        {% set sunrise_time = sunrise_local.strftime('%H:%M:%S') %}
-        {{ as_timestamp(today_date + ' ' + sunrise_time) | float(0) }}
-      v_todays_sunset_ts: >-
-        {% set today_date = now().strftime('%Y-%m-%d') %}
-        {% set sunset_local = as_local(as_datetime(state_attr('sun.sun', 'next_setting'))) %}
-        {% set sunset_time = sunset_local.strftime('%H:%M:%S') %}
-        {{ as_timestamp(today_date + ' ' + sunset_time) | float(0) }}
-      v_solar_start_ts: "{{ (v_sunrise_ts + (v_solar_margin_h * 3600)) | float(0) }}"
-      v_solar_end_ts: "{{ (v_sunset_ts - (v_solar_margin_h * 3600)) | float(0) }}"
+      # Find earliest and latest hour blocks with >0 Wh, based on the forecast map we already read.
+      v_solar_start_ts: >-
+        {% set ns = namespace(earliest=None) %}
+        {% for ts, wh in v_wh_period_map | dictsort %}
+          {% if (wh | float(0)) > 0 %}
+            {% set hs = as_timestamp(ts) | float(0) %}
+            {% if ns.earliest is none or hs < ns.earliest %}
+              {% set ns.earliest = hs %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {% set start_raw = (ns.earliest if ns.earliest is not none else v_now_ts) %}
+        {{ (start_raw + (v_solar_margin_h | float(0)) * 3600) | float(0) }}
 
-      # ---------- Human-readable dates ----------
-      v_now_hr: "{{ v_now_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
-      v_sunset_hr: "{{ v_sunset_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
-      v_sunrise_hr: "{{ v_sunrise_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
-      v_todays_sunrise_hr: "{{ v_todays_sunrise_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
-      v_todays_sunset_hr: "{{ v_todays_sunset_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
+      v_solar_end_ts: >-
+        {% set ns = namespace(latest=None) %}
+        {% for ts, wh in v_wh_period_map | dictsort %}
+          {% if (wh | float(0)) > 0 %}
+            {% set hs = as_timestamp(ts) | float(0) %}
+            {% set he = hs + 3600 %}
+            {% if ns.latest is none or he > ns.latest %}
+              {% set ns.latest = he %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {% set end_raw = (ns.latest if ns.latest is not none else v_now_ts) %}
+        {{ (end_raw - (v_solar_margin_h | float(0)) * 3600) | float(0) }}
+
+      # Human-readable for traces
       v_solar_start_hr: "{{ v_solar_start_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
-      v_solar_end_hr: "{{ v_solar_end_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
+      v_solar_end_hr:   "{{ v_solar_end_ts   | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
 
-      # ---------- Calculations ----------
-      v_hours_until_last_solar: >-
-        {% set h = (v_solar_end_ts - v_now_ts) / 3600 %}
-        {% if h < 0 %}
-          0
-        {% else %}
-          {{ h | float(0) }}
-        {% endif %}
+      # Early-morning window relative to the first solar hour (after margin)
       v_is_early_morning: >-
-        {{ (v_now_ts >= v_todays_sunrise_ts) and (v_now_ts < (v_todays_sunrise_ts + v_early_morning_margin_h * 3600)) }}
+        {{ (v_now_ts >= v_solar_start_ts) and
+          (v_now_ts < (v_solar_start_ts + (v_early_morning_margin_h | float(0)) * 3600)) }}
+
 
 
   - alias: "Step 3 · Determine Discharge Block Status"
     variables:
-      # if soc is 100, always block discharging if we did not reach soc yet 
-      v_max_soc_blocked: >-
-        {{ v_max_soc == 100 and v_current_soc < 100 }}
-      # block discharge in the morning till a base level to avoid charging 1% to say 21% and again discharging that, wait till we reach for example 30  
+      v_max_soc_blocked: "{{ v_max_soc == 100 and v_current_soc < 100 }}"
       v_early_morning_block: >-
-        {{ v_is_early_morning and (v_forecast_remaining_wh > 0) and (v_current_soc < (v_min_soc + v_min_soc_buffer_pct)) }}
-      v_discharge_blocked: >-
-        {{ v_max_soc_blocked or v_early_morning_block }}
+        {{ v_is_early_morning and (v_current_soc < (v_min_soc + v_min_soc_buffer_pct)) }}
+      v_discharge_blocked: "{{ v_max_soc_blocked or v_early_morning_block }}"
 
-  - alias: "Step 4 · Compute Forecast vs Self-Use vs Capacity"
+  - alias: "Step 4 · Compute Future Surplus (Wh) from wh_period minus baseload"
     variables:
-      # calculate self use during the period when we have solar
-      v_expected_self_use_wh: >-
-        {% set baseload = v_house_baseload_w | float(0) %}
-        {% set hours    = v_hours_until_last_solar | float(0) %}
-        {{ (baseload * hours) | float(0) }}
-      # solar expected minus self use is what we need to store if we do not allow discharge   
-      v_storage_candidate_wh: >-
-        {% set forecast = v_forecast_remaining_wh | float(0) %}
-        {% set selfuse  = v_expected_self_use_wh | float(0) %}
-        {% set candidate = forecast - selfuse %}
-        {% if candidate < 0 %}
-          0
-        {% else %}
-          {{ candidate | float(0) }}
-        {% endif %}
+      v_future_surplus_wh: >-
+        {% set bl_w = v_house_baseload_w | float(0) %}
+        {% set solar_start = v_solar_start_ts | float(0) %}
+        {% set solar_end = v_solar_end_ts | float(0) %}
+        {% set now_ts = v_now_ts | float(0) %}
+        {% set m = v_wh_period_map %}
+        {% set ns = namespace(total=0.0) %}
+        {# Iterate chronologically over the hour buckets #}
+        {% for ts, wh in m | dictsort %}
+          {% set hs = as_timestamp(ts) if (ts is string) else (as_timestamp(ts|string)) %}
+          {% set he = (hs | float(0)) + 3600 %}
+          {% set win_start = [hs|float(0), solar_start, now_ts] | max %}
+          {% set win_end   = [he|float(0), solar_end] | min %}
+          {% set overlap_s = (win_end - win_start) if win_end > win_start else 0 %}
+          {% if overlap_s > 0 %}
+            {% set frac = (overlap_s / 3600) %}
+            {% set rem_wh = (wh | float(0)) * frac %}
+            {% set bl_wh  = bl_w * frac %}
+            {% set surplus = rem_wh - bl_wh %}
+            {% if surplus > 0 %}
+              {% set ns.total = ns.total + surplus %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.total | float(0) }}
 
   - alias: "Step 5 · Compute Desired Discharge Permission"
     variables:
-      v_hint: "Warning we will still store some energy if current production is more then current use" 
-      v_expected_charging_remaining_today_wh: "{{ v_storage_candidate_wh }}"
-      v_batt_capacity_remaining_wh: "{{ v_batt_remaining_wh }}"
-      v_expected_self_usage_wh: "{{ v_expected_self_use_wh | round(0) }}"
-      v_remaining_forecast_wh: "{{ v_forecast_remaining_wh | round(0) }}"
+      v_expected_surplus_storable_wh: "{{ v_future_surplus_wh | round(0) }}"
+      v_batt_capacity_remaining_wh:  "{{ v_batt_remaining_wh | round(0) }}"
       v_expected_grid_overflow_wh: >-
-        {% set forecast = v_forecast_remaining_wh | float(0) %}
-        {% set selfuse  = v_expected_self_use_wh | float(0) %}
-        {% set canstore  = v_batt_remaining_wh | float(0) %}
-        {% set overflow = forecast - (selfuse+canstore) %}
-        {% if overflow < 0 %}
-          0
-        {% else %}
-          {{ overflow | float(0) }}
-        {% endif %}
+        {% set overflow = (v_future_surplus_wh | float(0)) - (v_batt_remaining_wh | float(0)) %}
+        {{ 0 if overflow < 0 else overflow | float(0) }}
+
+      v_discharge_desired_based_on_storage_cap: >-
+        {{ (v_future_surplus_wh | float(0)) > (v_batt_remaining_wh | float(0)) }}
 
       v_discharge_desired: |-
         {% if (v_discharge_blocked | bool(false)) %}
           {% set discharge_allowed_desired = false %}
         {% else %}
-          {% if (v_storage_candidate_wh | float(0)) > (v_batt_remaining_wh | float(0)) %}
+          {% if (v_future_surplus_wh | float(0)) > (v_batt_remaining_wh | float(0)) %}
             {% set discharge_allowed_desired = true %}
           {% else %}
+            # v_discharge_desired is sticky, if it was set to true after the block, it remains true 
+            # hence we only discharge at night/next morning if we had sufficient solar today. If we just had a bit
+            # then use it next time. Around midnight we get a new solar estimate, if that does not fit
+            # it starts discharging after midnight to make space. Should be fine during the winter
             {% set discharge_allowed_desired = v_discharge_allowed_now %}
           {% endif %}
         {% endif %}
-        {{ discharge_allowed_desired }}
+        {{ discharge_allowed_desired }}        
 
   - alias: "Step 6 · Update Helper if Changed"
     choose:
@@ -260,7 +295,6 @@ action:
           - condition: template
             value_template: "{{ v_discharge_desired != v_discharge_allowed_now }}"
         sequence:
-          # once on it remain on till the next morningwindow when charging could start but we might block it first to get to a minimum level
           - action: "input_boolean.turn_{{ 'on' if v_discharge_desired else 'off' }}"
             target:
               entity_id: "{{ e_discharge_allowed }}"
