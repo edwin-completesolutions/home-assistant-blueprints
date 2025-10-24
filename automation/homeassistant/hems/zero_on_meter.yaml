@@ -1,0 +1,368 @@
+blueprint:
+  name: Zero-on-Meter
+  description: >
+    Maintains near-zero grid export by dynamically charging or discharging the
+    SolarFlow. Runs every 10 s, targeting about –50 W on the meter. Applies SoC
+    (with epsilon), deadband, caps, min-power, flip/step guards, and a final
+    enforcement so discharge never occurs when blocked. Updates setpoints + state.
+  domain: automation
+  input:
+    control_enabled:
+      name: Control enabled
+      description: Helper that enables or disables automatic zero-on-meter control for the home battery system.
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+
+    discharge_allowed:
+      name: Discharge allowed
+      description: Helper indicating whether the battery is currently allowed to discharge energy to the home or grid.
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+
+    soc_level:
+      name: Battery SoC
+      description: Sensor providing the current state of charge (percentage) of the battery.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              integration: mqtt
+              device_class: battery
+
+    minsoc:
+      name: Minimum SoC
+      description: Number entity defining the lower charge limit of the battery. This automation only reads its value.
+      selector:
+        entity:
+          filter:
+            - domain: number
+              integration: mqtt
+
+    maxsoc:
+      name: Maximum SoC
+      description: Number entity defining the upper charge limit of the battery. This automation only reads its value.
+      selector:
+        entity:
+          filter:
+            - domain: number
+              integration: mqtt
+
+    acmode:
+      name: AC mode
+      description: Select entity controlling or reporting the battery’s AC operating mode (charge or discharge).
+      selector:
+        entity:
+          filter:
+            - domain: select
+              integration: mqtt
+
+    inputlimit:
+      name: Charge limit
+      description: Number entity defining the current input (charging) power limit in watts.
+      selector:
+        entity:
+          filter:
+            - domain: number
+              device_class: power
+              integration: mqtt
+
+    outputlimit:
+      name: Discharge limit
+      description: Number entity defining the current output (discharging) power limit in watts.
+      selector:
+        entity:
+          filter:
+            - domain: number
+              device_class: power
+              integration: mqtt
+
+    grid_power:
+      name: Grid power
+      description: Sensor measuring the current grid import/export power (positive = export, negative = import).
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+
+    state_desc_text:
+      name: State description
+      description: Input text helper used to display the current operational state of the battery system.
+      selector:
+        entity:
+          filter:
+            - domain: input_text
+
+
+mode: restart
+
+trigger:
+  - trigger: time_pattern
+    seconds: /10
+
+condition: []
+
+action:
+  - alias: Read sensors
+    variables:
+      # Bind entity ids from inputs (no Jinja here)
+      e_control_enabled: !input control_enabled
+      e_discharge_allowed: !input discharge_allowed
+      e_soc_level: !input soc_level
+      e_minsoc: !input minsoc
+      e_maxsoc: !input maxsoc
+      e_acmode: !input acmode
+      e_inputlimit: !input inputlimit
+      e_outputlimit: !input outputlimit
+      e_grid_power: !input grid_power
+
+      # Read their current states via Jinja
+      sensor_control_enabled: "{{ states(e_control_enabled) }}"
+      sensor_discharge_allowed: "{{ states(e_discharge_allowed) }}"
+      sensor_soc_level: "{{ states(e_soc_level) }}"
+      sensor_minsoc: "{{ states(e_minsoc) }}"
+      sensor_maxsoc: "{{ states(e_maxsoc) }}"
+      sensor_acmode: "{{ states(e_acmode) }}"
+      sensor_current_input_limit: "{{ states(e_inputlimit) }}"
+      sensor_current_output_limit: "{{ states(e_outputlimit) }}"
+      sensor_current_grid_power: "{{ states(e_grid_power) }}"
+
+
+  - alias: Compute Current Setpoint Signed in Watt
+    variables:
+      grid_power_w: "{{ sensor_current_grid_power | float(0) }}"
+      control_enabled: "{{ sensor_control_enabled == 'on' }}"
+      discharge_allowed: "{{ sensor_discharge_allowed == 'on' }}"
+      soc_percent: "{{ sensor_soc_level | float(0) }}"
+      soc_min: "{{ sensor_minsoc | float(0) }}"
+      soc_max: "{{ sensor_maxsoc | float(100) }}"
+      epsilon: 0.1
+      soc_at_or_below_min: "{{ soc_percent <= soc_min + epsilon }}"
+      soc_at_or_above_max: "{{ soc_percent >= soc_max - epsilon }}"
+      ac_mode_raw: "{{ sensor_acmode }}"
+      mode_is_discharge: "{{ 'Output' in ac_mode_raw }}"
+      current_setpoint_charge_w: "{{ sensor_current_input_limit | float(0) }}"
+      current_setpoint_discharge_w: "{{ sensor_current_output_limit | float(0) }}"
+      current_setpoint_signed_w: |
+        {% if mode_is_discharge %}
+          {% set current_setpoint_signed_w = current_setpoint_discharge_w %}
+        {% else %}
+          {% set current_setpoint_signed_w = (-1 * current_setpoint_charge_w) %}
+        {% endif %}
+        {{ current_setpoint_signed_w | round(0) }} 
+      target_grid_w: -50
+      desired_raw_w: >-
+        {{ (current_setpoint_signed_w - grid_power_w + target_grid_w) | round(0) }}
+  - alias: Cap to 0 if battery full, empty or discharge not allowed
+    variables:
+      gated_w: |
+        {% set gated_w = desired_raw_w %}
+        {% if not discharge_allowed %}
+          {% set gated_w = [gated_w, 0] | min %}
+        {% endif %}
+        {% if soc_at_or_above_max %}
+          {% set gated_w = [gated_w, 0] | max %}
+        {% endif %}
+        {% if soc_at_or_below_min %}
+          {% set gated_w = [gated_w, 0] | min %}
+        {% endif %}
+        {{ gated_w }}       
+  - alias: Deadband (±30 W) — “don’t bother” zone
+    variables:
+      deadband_w: 30
+      banded_w: |
+        {% set banded_w = gated_w %}
+        {% if banded_w | abs <= deadband_w %}
+          {% set banded_w = 0 %}
+        {% endif %}
+        {{ banded_w }}        
+  - alias: Cap to hardware limits (max charge, max discharge)
+    variables:
+      max_charge_cap_w: 2000
+      max_discharge_cap_w: 800
+      capped_w: |
+        {% set capped_w = banded_w %}
+        {% if capped_w > 0 %}
+          {% set capped_w = [capped_w, max_discharge_cap_w] | min %}
+        {% elif capped_w < 0 %}
+          {% set capped_w = [capped_w, -max_charge_cap_w] | max %}
+        {% else %}
+          {% set capped_w = 0 %}
+        {% endif %}
+        {{ capped_w }}
+  - alias: Minimum effective magnitude (≥ 100 W) — “if you act, act decisively”
+    variables:
+      min_effective_abs_w: 100
+      snapped_w: |
+        {% if capped_w == 0 %}
+          {% set snapped_w = 0 %}
+        {% elif capped_w > 0 %}
+          {% set snapped_w = [capped_w, min_effective_abs_w] | max %}
+        {% else %}
+          {% set snapped_w = [capped_w, -min_effective_abs_w] | min %}
+        {% endif %}
+        {{ snapped_w }}
+  - alias: Only allow direction change if “significant” (≥ 100)
+    variables:
+      flip_guard_w: >
+        {% if snapped_w == 0 %}
+          {% set flip_guard_w = 0 %}
+        {% elif (snapped_w > 0 and current_setpoint_signed_w <= 0) or (snapped_w < 0 and current_setpoint_signed_w >= 0) %}
+          {% if snapped_w | abs <= min_effective_abs_w %}
+            {% set flip_guard_w = (1 if current_setpoint_signed_w >= 0 else -1) * min_effective_abs_w %}
+          {% else %}
+            {% set flip_guard_w = snapped_w %}
+          {% endif %}
+        {% else %}
+          {% set flip_guard_w = snapped_w %}
+        {% endif %} {{ flip_guard_w }}
+  - alias: Step-rate limit (min change step)
+    variables:
+      min_change_step_w: 50
+      effective_target_w: >
+        {% if (flip_guard_w - current_setpoint_signed_w) | abs < min_change_step_w %}
+          {% set effective_target_w = current_setpoint_signed_w %}
+        {% else %}
+          {% set effective_target_w = flip_guard_w %}
+        {% endif %} {{ effective_target_w }}
+  - alias: Enforce policy (no discharge when blocked or empty)
+    variables:
+      enforced_w: >
+        {% set w = effective_target_w %} {% if (not discharge_allowed) or soc_at_or_below_min %}
+          {% set w = [w, 0] | min %}
+        {% endif %} {{ w }}
+  - alias: Split into charge/discharge + choose desired_mode
+    variables:
+      desired_discharge_w: |
+        {% if enforced_w > 0 %}
+          {% set desired_discharge_w = enforced_w %}
+        {% else %}
+          {% set desired_discharge_w = 0 %}
+        {% endif %}
+        {{ desired_discharge_w }}    
+      desired_charge_w: |
+        {% if enforced_w < 0 %}
+          {% set desired_charge_w = -1 * enforced_w %}
+        {% else %}
+          {% set desired_charge_w = 0 %}
+        {% endif %}
+        {{ desired_charge_w }}
+      acmode_option_input: Input mode
+      acmode_option_output: Output mode
+      desired_mode: |
+        {% if not control_enabled %}
+          {% set desired_mode = ac_mode_raw %}
+        {% elif not discharge_allowed or soc_at_or_below_min %}
+          {% set desired_mode = acmode_option_input %}
+        {% elif soc_at_or_above_max %}
+          {% set desired_mode = (acmode_option_output if discharge_allowed else acmode_option_input) %}
+        {% elif enforced_w | abs <= min_effective_abs_w %}
+          {% set desired_mode = ac_mode_raw %}
+        {% elif enforced_w > 0 %}
+          {% set desired_mode = acmode_option_output %}
+        {% else %}
+          {% set desired_mode = acmode_option_input %}
+        {% endif %}
+        {{ desired_mode }}
+  - alias: Decide whether to write changes (need_*)
+    variables:
+      need_mode_change: "{{ control_enabled and (desired_mode != ac_mode_raw) }}"
+      need_input_change: >
+        {{ control_enabled and (desired_charge_w - current_setpoint_charge_w) | abs >= min_change_step_w }}
+      need_output_change: >
+        {{ control_enabled and (desired_discharge_w - current_setpoint_discharge_w) | abs >= min_change_step_w }}
+      state_text: |
+        {% if enforced_w > 0 %}
+          {% set state_text = 'discharging' ~ (' (full)' if soc_at_or_above_max else '') %}
+        {% elif enforced_w < 0 %}
+          {% set state_text = 'charging' ~ (' (at min)' if soc_at_or_below_min else '') %}
+        {% elif (not discharge_allowed) and (effective_target_w > 0) %}
+          {% set state_text = 'discharging blocked' %}
+        {% elif soc_at_or_above_max %}
+          {% set state_text = 'full (cannot charge)' %}
+        {% elif soc_at_or_below_min %}
+          {% set state_text = 'empty (cannot discharge)' %}
+        {% else %}
+          {% set state_text = 'standby' %}
+        {% endif %}
+        {{ state_text }}
+  - alias: Apply mode and limits
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ need_mode_change }}"
+        sequence:
+          - action: select.select_option
+            target:
+              entity_id: !input acmode
+            data:
+              option: "{{ desired_mode }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ need_input_change }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: !input inputlimit
+            data:
+              value: "{{ desired_charge_w }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ need_output_change }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: !input outputlimit
+            data:
+              value: "{{ desired_discharge_w }}"
+    enabled: false        
+  - alias: Apply mode
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ need_mode_change }}"
+        sequence:
+          - action: select.select_option
+            target:
+              entity_id: !input acmode
+            data:
+              option: "{{ desired_mode }}"
+
+  - alias: Apply charge limit
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ need_input_change }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: !input inputlimit
+            data:
+              value: "{{ desired_charge_w }}"
+
+  - alias: Apply discharge limit
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ need_output_change }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: !input outputlimit
+            data:
+              value: "{{ desired_discharge_w }}"
+
+  - alias: Update descriptive text
+    if:
+      - condition: template
+        value_template: "{{ control_enabled }}"
+    then:
+      - action: input_text.set_value
+        target:
+          entity_id: !input state_desc_text
+        data:
+          value: "{{ state_text }}"
