@@ -158,7 +158,7 @@ trigger:
 condition: []
 
 action:
-  - alias: Step 1 · Define Entities and Constants Test
+  - alias: Step 1 · Define Entities and Constants
     variables:
       e_light: !input light_entity
       e_motion: !input motion_entity
