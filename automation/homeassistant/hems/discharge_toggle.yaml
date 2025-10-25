@@ -222,16 +222,16 @@ action:
         {% set end_raw = (ns.latest if ns.latest is not none else v_now_ts) %}
         {{ (end_raw - (v_solar_margin_h | float(0)) * 3600) | float(0) }}
 
+      v_early_morning_ends_ts: "{{ (v_solar_start_ts + (v_early_morning_margin_h | float(0)) * 3600) | float(0) }}"
+
       # Human-readable for traces
       v_solar_start_hr: "{{ v_solar_start_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
       v_solar_end_hr:   "{{ v_solar_end_ts   | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
+      v_early_morning_ends_hr: "{{ v_early_morning_ends_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', True) }}"
 
       # Early-morning window relative to the first solar hour (after margin)
       v_is_early_morning: >-
-        {{ (v_now_ts >= v_solar_start_ts) and
-          (v_now_ts < (v_solar_start_ts + (v_early_morning_margin_h | float(0)) * 3600)) }}
-
-
+        {{ (v_now_ts >= v_solar_start_ts) and (v_now_ts < v_early_morning_ends_ts) }}
 
   - alias: "Step 3 · Determine Discharge Block Status"
     variables:

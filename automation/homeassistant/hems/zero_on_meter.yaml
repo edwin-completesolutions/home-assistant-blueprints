@@ -2,7 +2,7 @@ blueprint:
   name: Zero-on-Meter
   description: >
     Maintains near-zero grid export by dynamically charging or discharging the
-    SolarFlow. Runs every 10 s, targeting about –50 W on the meter. Applies SoC
+    SolarFlow. Runs every 20 s, targeting about –50 W on the meter. Applies SoC
     (with epsilon), deadband, caps, min-power, flip/step guards, and a final
     enforcement so discharge never occurs when blocked. Updates setpoints + state.
   domain: automation
@@ -89,6 +89,15 @@ blueprint:
             - domain: sensor
               device_class: power
 
+    shelly_power:
+      name: Smart socket for monitoring
+      description: A smart socket that measures the actual charge (+) or discharge (-) in Watts
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power              
+
     state_desc_text:
       name: State description
       description: Input text helper used to display the current operational state of the battery system.
@@ -97,12 +106,11 @@ blueprint:
           filter:
             - domain: input_text
 
-
 mode: restart
 
 trigger:
   - trigger: time_pattern
-    seconds: /10
+    seconds: /20
 
 condition: []
 
@@ -119,6 +127,7 @@ action:
       e_inputlimit: !input inputlimit
       e_outputlimit: !input outputlimit
       e_grid_power: !input grid_power
+      e_socket_power: !input shelly_power
 
       # Read their current states via Jinja
       sensor_control_enabled: "{{ states(e_control_enabled) }}"
@@ -130,11 +139,12 @@ action:
       sensor_current_input_limit: "{{ states(e_inputlimit) }}"
       sensor_current_output_limit: "{{ states(e_outputlimit) }}"
       sensor_current_grid_power: "{{ states(e_grid_power) }}"
-
+      sensor_current_socket_power: "{{ states(e_socket_power) }}"
 
   - alias: Compute Current Setpoint Signed in Watt
     variables:
       grid_power_w: "{{ sensor_current_grid_power | float(0) }}"
+      socket_power_w: "{{ sensor_current_socket_power | float(0) }}"
       control_enabled: "{{ sensor_control_enabled == 'on' }}"
       discharge_allowed: "{{ sensor_discharge_allowed == 'on' }}"
       soc_percent: "{{ sensor_soc_level | float(0) }}"
@@ -147,16 +157,20 @@ action:
       mode_is_discharge: "{{ 'Output' in ac_mode_raw }}"
       current_setpoint_charge_w: "{{ sensor_current_input_limit | float(0) }}"
       current_setpoint_discharge_w: "{{ sensor_current_output_limit | float(0) }}"
+      # current charge discharge taken from shelly socket
+      current_setpoint_signed_w_new: "{{ sensor_current_socket_power | float(0) }}"
+      current_setpoint_signed_w_new_signed: "{{(-1 * current_setpoint_signed_w_new | float(0)) }}"
+      # old we used the setpoints of the battery but they react slow
       current_setpoint_signed_w: |
         {% if mode_is_discharge %}
           {% set current_setpoint_signed_w = current_setpoint_discharge_w %}
         {% else %}
           {% set current_setpoint_signed_w = (-1 * current_setpoint_charge_w) %}
         {% endif %}
-        {{ current_setpoint_signed_w | round(0) }} 
-      target_grid_w: -50
-      desired_raw_w: >-
-        {{ (current_setpoint_signed_w - grid_power_w + target_grid_w) | round(0) }}
+        {{ current_setpoint_signed_w | round(0) }}
+      target_grid_w: 50
+      desired_raw_w: >-  
+        {{ (current_setpoint_signed_w_new_signed - grid_power_w + target_grid_w) | round(0) }}
   - alias: Cap to 0 if battery full, empty or discharge not allowed
     variables:
       gated_w: |
@@ -170,22 +184,24 @@ action:
         {% if soc_at_or_below_min %}
           {% set gated_w = [gated_w, 0] | min %}
         {% endif %}
-        {{ gated_w }}       
+        {{ gated_w }}
+      desired_raw_w: "{{ gated_w }}"
   - alias: Deadband (±30 W) — “don’t bother” zone
     variables:
       deadband_w: 30
       banded_w: |
-        {% set banded_w = gated_w %}
+        {% set banded_w = desired_raw_w %}
         {% if banded_w | abs <= deadband_w %}
           {% set banded_w = 0 %}
         {% endif %}
-        {{ banded_w }}        
+        {{ banded_w }}
+      desired_raw_w: "{{ banded_w }}"
   - alias: Cap to hardware limits (max charge, max discharge)
     variables:
       max_charge_cap_w: 2000
       max_discharge_cap_w: 800
       capped_w: |
-        {% set capped_w = banded_w %}
+        {% set capped_w = desired_raw_w %}
         {% if capped_w > 0 %}
           {% set capped_w = [capped_w, max_discharge_cap_w] | min %}
         {% elif capped_w < 0 %}
@@ -194,59 +210,66 @@ action:
           {% set capped_w = 0 %}
         {% endif %}
         {{ capped_w }}
+      desired_raw_w: "{{ capped_w }}"   
   - alias: Minimum effective magnitude (≥ 100 W) — “if you act, act decisively”
     variables:
       min_effective_abs_w: 100
       snapped_w: |
-        {% if capped_w == 0 %}
+        {% if desired_raw_w == 0 %}
           {% set snapped_w = 0 %}
-        {% elif capped_w > 0 %}
-          {% set snapped_w = [capped_w, min_effective_abs_w] | max %}
+        {% elif desired_raw_w > 0 %}
+          {% set snapped_w = [desired_raw_w, min_effective_abs_w] | max %}
         {% else %}
-          {% set snapped_w = [capped_w, -min_effective_abs_w] | min %}
+          {% set snapped_w = [desired_raw_w, -min_effective_abs_w] | min %}
         {% endif %}
         {{ snapped_w }}
+      desired_raw_w: "{{ snapped_w }}" 
   - alias: Only allow direction change if “significant” (≥ 100)
     variables:
       flip_guard_w: >
-        {% if snapped_w == 0 %}
+        {% if desired_raw_w == 0 %}
           {% set flip_guard_w = 0 %}
-        {% elif (snapped_w > 0 and current_setpoint_signed_w <= 0) or (snapped_w < 0 and current_setpoint_signed_w >= 0) %}
-          {% if snapped_w | abs <= min_effective_abs_w %}
+        {% elif (desired_raw_w > 0 and current_setpoint_signed_w <= 0) or (desired_raw_w < 0 and current_setpoint_signed_w >= 0) %}
+          {% if desired_raw_w | abs <= min_effective_abs_w %}
             {% set flip_guard_w = (1 if current_setpoint_signed_w >= 0 else -1) * min_effective_abs_w %}
           {% else %}
-            {% set flip_guard_w = snapped_w %}
+            {% set flip_guard_w = desired_raw_w %}
           {% endif %}
         {% else %}
-          {% set flip_guard_w = snapped_w %}
-        {% endif %} {{ flip_guard_w }}
+          {% set flip_guard_w = desired_raw_w %}
+        {% endif %} 
+        {{ flip_guard_w }}
+      desired_raw_w: "{{ flip_guard_w }}" 
   - alias: Step-rate limit (min change step)
     variables:
       min_change_step_w: 50
-      effective_target_w: >
-        {% if (flip_guard_w - current_setpoint_signed_w) | abs < min_change_step_w %}
-          {% set effective_target_w = current_setpoint_signed_w %}
+      desired_raw_w: >
+        {% if (desired_raw_w - current_setpoint_signed_w) | abs < min_change_step_w %}
+          {% set desired_raw_w = current_setpoint_signed_w %}
         {% else %}
-          {% set effective_target_w = flip_guard_w %}
-        {% endif %} {{ effective_target_w }}
+          {% set desired_raw_w = desired_raw_w %}
+        {% endif %} 
+        {{ desired_raw_w }}
   - alias: Enforce policy (no discharge when blocked or empty)
     variables:
-      enforced_w: >
-        {% set w = effective_target_w %} {% if (not discharge_allowed) or soc_at_or_below_min %}
-          {% set w = [w, 0] | min %}
-        {% endif %} {{ w }}
+      desired_raw_w: >
+        {% set enforced_w = desired_raw_w %} 
+        {% if (not discharge_allowed) or soc_at_or_below_min %}
+          {% set enforced_w = [enforced_w, 0] | min %}
+        {% endif %} 
+        {{ enforced_w }}
   - alias: Split into charge/discharge + choose desired_mode
     variables:
       desired_discharge_w: |
-        {% if enforced_w > 0 %}
-          {% set desired_discharge_w = enforced_w %}
+        {% if desired_raw_w > 0 %}
+          {% set desired_discharge_w = desired_raw_w %}
         {% else %}
           {% set desired_discharge_w = 0 %}
         {% endif %}
-        {{ desired_discharge_w }}    
+        {{ desired_discharge_w }}
       desired_charge_w: |
-        {% if enforced_w < 0 %}
-          {% set desired_charge_w = -1 * enforced_w %}
+        {% if desired_raw_w < 0 %}
+          {% set desired_charge_w = -1 * desired_raw_w %}
         {% else %}
           {% set desired_charge_w = 0 %}
         {% endif %}
@@ -260,9 +283,9 @@ action:
           {% set desired_mode = acmode_option_input %}
         {% elif soc_at_or_above_max %}
           {% set desired_mode = (acmode_option_output if discharge_allowed else acmode_option_input) %}
-        {% elif enforced_w | abs <= min_effective_abs_w %}
+        {% elif desired_raw_w | abs <= min_effective_abs_w %}
           {% set desired_mode = ac_mode_raw %}
-        {% elif enforced_w > 0 %}
+        {% elif desired_raw_w > 0 %}
           {% set desired_mode = acmode_option_output %}
         {% else %}
           {% set desired_mode = acmode_option_input %}
@@ -276,9 +299,9 @@ action:
       need_output_change: >
         {{ control_enabled and (desired_discharge_w - current_setpoint_discharge_w) | abs >= min_change_step_w }}
       state_text: |
-        {% if enforced_w > 0 %}
+        {% if desired_raw_w > 0 %}
           {% set state_text = 'discharging' ~ (' (full)' if soc_at_or_above_max else '') %}
-        {% elif enforced_w < 0 %}
+        {% elif desired_raw_w < 0 %}
           {% set state_text = 'charging' ~ (' (at min)' if soc_at_or_below_min else '') %}
         {% elif (not discharge_allowed) and (effective_target_w > 0) %}
           {% set state_text = 'discharging blocked' %}
@@ -319,7 +342,7 @@ action:
               entity_id: !input outputlimit
             data:
               value: "{{ desired_discharge_w }}"
-    enabled: false        
+    enabled: false
   - alias: Apply mode
     choose:
       - conditions:
