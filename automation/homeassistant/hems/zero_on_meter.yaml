@@ -168,7 +168,7 @@ action:
           {% set current_setpoint_signed_w = (-1 * current_setpoint_charge_w) %}
         {% endif %}
         {{ current_setpoint_signed_w | round(0) }}
-      target_grid_w: 50
+      target_grid_w: 0
       desired_raw_w: >-  
         {{ (current_setpoint_signed_w_new_signed - grid_power_w + target_grid_w) | round(0) }}
   - alias: Cap to 0 if battery full, empty or discharge not allowed
@@ -213,25 +213,26 @@ action:
       desired_raw_w: "{{ capped_w }}"   
   - alias: Minimum effective magnitude (≥ 100 W) — “if you act, act decisively”
     variables:
-      min_effective_abs_w: 100
+      min_effective_act_abs_w: 50
       snapped_w: |
         {% if desired_raw_w == 0 %}
           {% set snapped_w = 0 %}
         {% elif desired_raw_w > 0 %}
-          {% set snapped_w = [desired_raw_w, min_effective_abs_w] | max %}
+          {% set snapped_w = [desired_raw_w, min_effective_act_abs_w] | max %}
         {% else %}
-          {% set snapped_w = [desired_raw_w, -min_effective_abs_w] | min %}
+          {% set snapped_w = [desired_raw_w, -min_effective_act_abs_w] | min %}
         {% endif %}
         {{ snapped_w }}
       desired_raw_w: "{{ snapped_w }}" 
   - alias: Only allow direction change if “significant” (≥ 100)
     variables:
+      min_effective_direction_abs_w: 100
       flip_guard_w: >
         {% if desired_raw_w == 0 %}
           {% set flip_guard_w = 0 %}
         {% elif (desired_raw_w > 0 and current_setpoint_signed_w <= 0) or (desired_raw_w < 0 and current_setpoint_signed_w >= 0) %}
-          {% if desired_raw_w | abs <= min_effective_abs_w %}
-            {% set flip_guard_w = (1 if current_setpoint_signed_w >= 0 else -1) * min_effective_abs_w %}
+          {% if desired_raw_w | abs <= min_effective_direction_abs_w %}
+            {% set flip_guard_w = (1 if current_setpoint_signed_w >= 0 else -1) * min_effective_direction_abs_w %}
           {% else %}
             {% set flip_guard_w = desired_raw_w %}
           {% endif %}
@@ -242,7 +243,7 @@ action:
       desired_raw_w: "{{ flip_guard_w }}" 
   - alias: Step-rate limit (min change step)
     variables:
-      min_change_step_w: 50
+      min_change_step_w: 10
       desired_raw_w: >
         {% if (desired_raw_w - current_setpoint_signed_w) | abs < min_change_step_w %}
           {% set desired_raw_w = current_setpoint_signed_w %}
@@ -250,6 +251,7 @@ action:
           {% set desired_raw_w = desired_raw_w %}
         {% endif %} 
         {{ desired_raw_w }}
+      effective_target_w: "{{ desired_raw_w }}"
   - alias: Enforce policy (no discharge when blocked or empty)
     variables:
       desired_raw_w: >
@@ -283,7 +285,7 @@ action:
           {% set desired_mode = acmode_option_input %}
         {% elif soc_at_or_above_max %}
           {% set desired_mode = (acmode_option_output if discharge_allowed else acmode_option_input) %}
-        {% elif desired_raw_w | abs <= min_effective_abs_w %}
+        {% elif desired_raw_w | abs <= min_effective_direction_abs_w %}
           {% set desired_mode = ac_mode_raw %}
         {% elif desired_raw_w > 0 %}
           {% set desired_mode = acmode_option_output %}
